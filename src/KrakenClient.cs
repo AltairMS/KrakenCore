@@ -81,9 +81,9 @@ namespace KrakenCore
             RateLimit = rateLimit;
             if (TierInfo.TryGetValue(rateLimit, out var info))
             {
-                _privateApiRateLimiter = new RateLimiter(info.Limit, info.DecreaseTime, new Stopwatch());
+                _privateApiRateLimiter = new RateLimiter(info.Limit, info.DecreaseTime, () => DateTime.UtcNow, Task.Delay);
                 // If private rate limiter enabled, also enable public rate limiter.
-                _publicApiRateLimiter = new RateLimiter(20, TimeSpan.FromSeconds(1), new Stopwatch());
+                _publicApiRateLimiter = new RateLimiter(20, TimeSpan.FromSeconds(1), () => DateTime.UtcNow, Task.Delay);
             }
 
             _httpClient.BaseAddress = new Uri("https://api.kraken.com");

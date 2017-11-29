@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
@@ -9,45 +10,66 @@ namespace KrakenCore.Utils
     // Not thread safe.
     internal class RateLimiter
     {
-        private readonly int _counterLimit;
-        private readonly TimeSpan _counterDecreaseTime;
-        private readonly IStopwatch _stopwatch;
+        private readonly int _limit;
+        private readonly TimeSpan _decreaseTime;
 
-        private int _callCounter;
+        private readonly Func<DateTime> _timestamp;
+        private readonly Func<TimeSpan, Task> _delay;
 
-        public RateLimiter(int limit, TimeSpan decreaseTime, IStopwatch stopwatch)
+        private readonly Queue<DateTime> _processingTimestamps;
+        private DateTime _barrier = DateTime.MinValue;
+
+        public RateLimiter(int limit, TimeSpan decreaseTime, Func<DateTime> timestamp, Func<TimeSpan, Task> delay)
         {
-            _counterLimit = limit;
-            _counterDecreaseTime = decreaseTime;
-            _stopwatch = stopwatch;
+            _limit = limit;
+            _decreaseTime = decreaseTime;
+            _timestamp = timestamp;
+            _delay = delay;
+            _processingTimestamps = new Queue<DateTime>(limit);
         }
 
-        public async Task<bool> WaitAccess(int counterIncrease)
+        public async Task WaitAccess(int counterIncrease)
         {
-            bool waited = false;
+            //DateTime timestamp = _timestamp();
 
-            // Time passed since last time access was granted.
-            TimeSpan elapsed = _stopwatch.Elapsed;
-
-            while (elapsed >= _counterDecreaseTime)
+            // Process history.
+            while (_processingTimestamps.Count > 0)
             {
-                _callCounter = Math.Max(_callCounter - 1, 0);
-                elapsed -= _counterDecreaseTime;
+                DateTime first = _processingTimestamps.Peek();
+                if (first - _barrier >= _decreaseTime)
+                {
+                    _processingTimestamps.Dequeue();
+                    _barrier = first + _decreaseTime;
+                }
             }
 
-            if (_callCounter > _counterLimit - counterIncrease)
+            int diff = counterIncrease - (_limit - _processingTimestamps.Count);
+
+            if (_processingTimestamps.Count < _limit)
             {
-                var toWait = TimeSpan.FromSeconds(
-                    (_callCounter - _counterLimit) * _counterDecreaseTime.TotalSeconds
-                ) - elapsed;
-                await Task.Delay(toWait);
-                waited = true;
+                _processingTimestamps.Enqueue(_timestamp());
+            }
+            else
+            {
+                await 
+            }
+
+            while (elapsed >= _decreaseTime)
+            {
+                _callCounter = Math.Max(_callCounter - 1, 0);
+                elapsed -= _decreaseTime;
             }
 
             _callCounter += counterIncrease;
             _stopwatch.Restart();
 
-            return waited;
+            if (_callCounter > _limit)
+            {
+                var toWait = TimeSpan.FromTicks(
+                    (_callCounter - _limit) * _decreaseTime.Ticks
+                ) - elapsed;
+                await _delay(toWait);
+            }
         }
     }
 }

@@ -7,52 +7,82 @@ namespace KrakenCore.Tests.Utils
 {
     public class RateLimiterTests
     {
-        private const int CallLimit = 2;
-        private static readonly TimeSpan CallCounterDecreaseTime = TimeSpan.FromTicks(1);
-
-        private readonly ManualStopwatch _stopwatch;
+        private readonly MockStopwatch _stopwatch = new MockStopwatch();
         private readonly RateLimiter _rateLimiter;
+
+        private long _delay;
 
         public RateLimiterTests()
         {
-            _stopwatch = new ManualStopwatch();
-            _rateLimiter = new RateLimiter(CallLimit, CallCounterDecreaseTime, _stopwatch);
+            _rateLimiter = new RateLimiter(2, TimeSpan.FromTicks(1), _stopwatch, time =>
+            {
+                _delay += time.Ticks;
+                return Task.CompletedTask;
+            });
         }
 
         [Fact]
         public async Task WaitAccess_NotLimited()
         {
-            Assert.False(await _rateLimiter.WaitAccess(CallLimit));
+            await _rateLimiter.WaitAccess(2);
+            Assert.Equal(0, _delay);
         }
 
         [Fact]
         public async Task WaitAccess_Limited()
         {
             await _rateLimiter.WaitAccess(1);
-            Assert.True(await _rateLimiter.WaitAccess(CallLimit));
+            await _rateLimiter.WaitAccess(2);
+            Assert.Equal(1, _delay);
         }
 
         [Fact]
         public async Task WaitAccess_EnoughTimePassed_NotLimited()
         {
-            await _rateLimiter.WaitAccess(CallLimit);
-            _stopwatch.Elapsed = CallCounterDecreaseTime;
-            Assert.False(await _rateLimiter.WaitAccess(1));
+            await _rateLimiter.WaitAccess(2);
+            _stopwatch.Set(1);
+            await _rateLimiter.WaitAccess(1);
+            Assert.Equal(0, _delay);
         }
 
         [Fact]
         public async Task WaitAccess_DoubleRateHalfTimePassed_Limited()
         {
-            await _rateLimiter.WaitAccess(CallLimit);
-            _stopwatch.Elapsed = CallCounterDecreaseTime;
-            Assert.True(await _rateLimiter.WaitAccess(2));
+            await _rateLimiter.WaitAccess(2);
+            _stopwatch.Set(1);
+            await _rateLimiter.WaitAccess(2);
+            Assert.Equal(1, _delay);
+        }
+
+        [Fact]
+        public async Task WaitAccess_Complex()
+        {
+            await _rateLimiter.WaitAccess(1);
+            Assert.Equal(0, _delay);
+
+            await _rateLimiter.WaitAccess(2);
+            Assert.Equal(1, _delay);
+            _stopwatch.Set(1);
+
+            await _rateLimiter.WaitAccess(2);
+            Assert.Equal(3, _delay);
+            _stopwatch.Set(3);
+
+            await _rateLimiter.WaitAccess(2);
+            Assert.Equal(5, _delay);
+            _stopwatch.Set(7);
+
+            await _rateLimiter.WaitAccess(2);
+            Assert.Equal(5, _delay);
         }
     }
 
-    internal class ManualStopwatch : IStopwatch
+    internal class MockStopwatch : IStopwatch
     {
-        public TimeSpan Elapsed { get; set; }
+        public TimeSpan Elapsed { get; private set; }
 
-        public void Restart() => Elapsed = TimeSpan.Zero;
+        public void Restart() => Set(0);
+
+        public void Set(long ticks) => Elapsed = TimeSpan.FromTicks(ticks);
     }
 }
