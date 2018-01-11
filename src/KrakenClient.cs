@@ -1,4 +1,3 @@
-using KrakenCore.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
@@ -15,7 +14,7 @@ using System.Threading.Tasks;
 namespace KrakenCore
 {
     /// <summary>
-    /// A strongly typed async HTTP client for Kraken bitcoin exchange API.
+    /// A strongly typed thread-safe async HTTP client for Kraken bitcoin exchange API.
     /// <para>https://www.kraken.com/help/api</para>
     /// </summary>
     public partial class KrakenClient : IDisposable
@@ -38,23 +37,12 @@ namespace KrakenCore
 
         private static readonly Dictionary<string, string> EmptyDictionary = new Dictionary<string, string>(0);
 
-        private static readonly Dictionary<RateLimit, (int Limit, TimeSpan DecreaseTime)> TierInfo
-            = new Dictionary<RateLimit, (int, TimeSpan)>(3)
-            {
-                [RateLimit.Tier2] = (15, TimeSpan.FromSeconds(3)),
-                [RateLimit.Tier3] = (20, TimeSpan.FromSeconds(2)),
-                [RateLimit.Tier4] = (20, TimeSpan.FromSeconds(1))
-            };
-
         private const int AdditionalPrivateQueryArgs = 2;
 
         private readonly HttpClient _httpClient = new HttpClient();
 
         private readonly HMACSHA512 _sha512PrivateKey;
         private readonly SHA256 _sha256 = SHA256.Create();
-
-        private readonly RateLimiter _publicApiRateLimiter;  // Nullable.
-        private readonly RateLimiter _privateApiRateLimiter; // Nullable.
 
         /// <summary>
         /// Initializes a new instance of the <see cref="KrakenClient"/> class.
@@ -67,24 +55,11 @@ namespace KrakenCore
         /// Secret required to sign private messages. Use <see cref="DummyPrivateKey"/> if only
         /// public API is used.
         /// </param>
-        /// <param name="rateLimit">
-        /// Used to enable API call rate limiter conforming to Kraken rules. To disable, use <see cref="RateLimit.None"/>.
-        /// </param>
-        public KrakenClient(
-            string apiKey,
-            string privateKey,
-            RateLimit rateLimit = RateLimit.None)
+        
+        public KrakenClient(string apiKey, string privateKey)
         {
             ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
             PrivateKey = privateKey ?? throw new ArgumentNullException(nameof(privateKey));
-
-            RateLimit = rateLimit;
-            if (TierInfo.TryGetValue(rateLimit, out var info))
-            {
-                _privateApiRateLimiter = new RateLimiter(info.Limit, info.DecreaseTime, () => DateTime.UtcNow, Task.Delay);
-                // If private rate limiter enabled, also enable public rate limiter.
-                _publicApiRateLimiter = new RateLimiter(20, TimeSpan.FromSeconds(1), () => DateTime.UtcNow, Task.Delay);
-            }
 
             _httpClient.BaseAddress = new Uri("https://api.kraken.com");
 
@@ -100,11 +75,6 @@ namespace KrakenCore
         /// Gets the private key aka secret used to sign private requests.
         /// </summary>
         public string PrivateKey { get; }
-
-        /// <summary>
-        /// Gets the rate limit applied for this client.
-        /// </summary>
-        public RateLimit RateLimit { get; }
 
         /// <summary>
         /// Gets or sets the base address of Uniform Resource Identifier (URI) of the Kraken API used
@@ -147,13 +117,13 @@ namespace KrakenCore
         /// Gets or sets request interceptor prior to dispatching it (default = null).
         /// <para>Can be used to log or modify the request, for example.</para>
         /// </summary>
-        public Func<HttpRequestMessage, Task<HttpRequestMessage>> InterceptRequest { get; set; } // Nullable
+        public Func<KrakenRequestContext, Task> InterceptRequest { get; set; } // Nullable
 
         /// <summary>
         /// Gets or sets response interceptor after receiving it (default = null).
         /// <para>Can be used to log or modify the response, for example.</para>
         /// </summary>
-        public Func<HttpResponseMessage, Task<HttpResponseMessage>> InterceptResponse { get; set; } // Nullable
+        public Func<KrakenResponseContext, Task> InterceptResponse { get; set; } // Nullable
 
         /// <summary>
         /// Sends a public POST request to the Kraken API as an asynchronous operation.
@@ -183,7 +153,7 @@ namespace KrakenCore
             };
 
             // Send request and deserialize response.
-            return await SendRequest<T>(req, _publicApiRateLimiter, apiCallCost).ConfigureAwait(false);
+            return await SendRequest<T>(req, apiCallCost).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -240,7 +210,7 @@ namespace KrakenCore
             req.Headers.Add("API-Sign", Convert.ToBase64String(signature));
 
             // Send request and deserialize response.
-            return await SendRequest<T>(req, _privateApiRateLimiter, apiCallCost).ConfigureAwait(false);
+            return await SendRequest<T>(req, apiCallCost).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -249,34 +219,39 @@ namespace KrakenCore
         /// </summary>
         public void Dispose() => _httpClient.Dispose();
 
-        private async Task<KrakenResponse<T>> SendRequest<T>(HttpRequestMessage req, RateLimiter rateLimiter, int cost)
+        private async Task<KrakenResponse<T>> SendRequest<T>(HttpRequestMessage req, int cost)
         {
-            // Wait before sending the request if rate limiter is enabled and counter is full.
-            if (rateLimiter != null && cost > 0)
+            var reqCtx = new KrakenRequestContext
             {
-                await rateLimiter.WaitAccess(cost).ConfigureAwait(false);
-            }
+                HttpRequest = req,
+                ApiCallCost = cost
+            };
 
             // Allow interception of request by the consumer of this client.
             if (InterceptRequest != null)
             {
-                req = await InterceptRequest(req).ConfigureAwait(false);
+                await InterceptRequest(reqCtx).ConfigureAwait(false);
             }
 
             // Perform the HTTP request.
-            HttpResponseMessage res = await _httpClient.SendAsync(req).ConfigureAwait(false);
+            HttpResponseMessage res = await _httpClient.SendAsync(reqCtx.HttpRequest).ConfigureAwait(false);
+
+            var resCtx = new KrakenResponseContext
+            {
+                HttpResponse = res
+            };
 
             // Throw for HTTP-level error.
-            res.EnsureSuccessStatusCode();
+            resCtx.HttpResponse.EnsureSuccessStatusCode();
 
             // Allow interception of response by the consumer of this client.
             if (InterceptResponse != null)
             {
-                res = await InterceptResponse(res).ConfigureAwait(false);
+                await InterceptResponse(resCtx).ConfigureAwait(false);
             }
 
             // Deserialize response.
-            string jsonContent = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            string jsonContent = await resCtx.HttpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
             var result = JsonConvert.DeserializeObject<KrakenResponse<T>>(jsonContent, JsonSettings);
 
             // Throw for API-level error and warning if configured.

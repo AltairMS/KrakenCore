@@ -2,21 +2,22 @@ using KrakenCore.Models;
 using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace KrakenCore.Tests
 {
-    public partial class KrakenClientTests
+    [Collection("Kraken")]
+    public class KrakenClientPublicApiTests : KrakenClientTests
     {
-        private const string DefaultBase = "XETH";
-        private const string DefaultBaseAlternate = "ETH";
-        private const string DefaultQuote = "ZEUR";
-        private const string DefaultPair = DefaultBase + DefaultQuote;
-        private const string DefaultPairAlternate = "ETHEUR";
+        public KrakenClientPublicApiTests(ITestOutputHelper output, KrakenFixture fixture)
+            : base(output, fixture)
+        {
+        }
 
         [Fact]
         public async Task GetServerTime()
         {
-            var res = await _client.GetServerTime();
+            var res = await Client.GetServerTime();
 
             AssertNotDefault(res.Result.UnixTime);
             AssertNotDefault(res.Result.Rfc1123);
@@ -25,7 +26,7 @@ namespace KrakenCore.Tests
         [Fact]
         public async Task GetAssetInfo_All()
         {
-            var res = await _client.GetAssetInfo();
+            var res = await Client.GetAssetInfo();
 
             Assert.NotEmpty(res.Result);
             var firstInfo = res.Result.Values.First();
@@ -38,7 +39,7 @@ namespace KrakenCore.Tests
         [Fact]
         public async Task GetAssetInfo_Eth()
         {
-            var res = await _client.GetAssetInfo(assetClass: AssetInfo.AssetClassCurrency, assets: DefaultBase);
+            var res = await Client.GetAssetInfo(assetClass: AssetInfo.AssetClassCurrency, assets: DefaultBase);
 
             var assetInfo = res.Result.First();
             Assert.Equal(DefaultBase, assetInfo.Key);
@@ -51,7 +52,7 @@ namespace KrakenCore.Tests
         {
             try
             {
-                await _client.GetAssetInfo(assetClass: "invalid-asset-class");
+                await Client.GetAssetInfo(assetClass: "invalid-asset-class");
                 Assert.True(false); // Fail.
             }
             catch (KrakenException ex)
@@ -65,7 +66,7 @@ namespace KrakenCore.Tests
         [Fact]
         public async Task GetTradableAssetPairs()
         {
-            var res = await _client.GetTradableAssetPairs();
+            var res = await Client.GetTradableAssetPairs();
 
             var assetPair = res.Result.First(x => x.Key == DefaultPair).Value;
             Assert.Equal(DefaultPairAlternate, assetPair.AlternateName);
@@ -86,7 +87,7 @@ namespace KrakenCore.Tests
         [Fact]
         public async Task GetTickerInformation()
         {
-            var res = await _client.GetTickerInformation(DefaultPair);
+            var res = await Client.GetTickerInformation(DefaultPair);
 
             var tickerInfo = res.Result.First(x => x.Key == DefaultPair).Value;
             AssertNotDefault(tickerInfo.Ask);
@@ -103,7 +104,7 @@ namespace KrakenCore.Tests
         [Fact]
         public async Task GetOhlcData()
         {
-            var res = await _client.GetOhlcData(DefaultPair);
+            var res = await Client.GetOhlcData(DefaultPair);
 
             AssertNotDefault(res.Result.Last);
             var pair = res.Result.First();
@@ -122,7 +123,7 @@ namespace KrakenCore.Tests
         [Fact]
         public async Task GetOrderBook()
         {
-            var res = await _client.GetOrderBook(DefaultPair);
+            var res = await Client.GetOrderBook(DefaultPair);
 
             var orderBook = res.Result.First();
             Assert.Equal(DefaultPair, orderBook.Key);
@@ -142,7 +143,7 @@ namespace KrakenCore.Tests
         [Fact]
         public async Task GetRecentTrades()
         {
-            var res = await _client.GetRecentTrades(DefaultPair);
+            var res = await Client.GetRecentTrades(DefaultPair);
 
             AssertNotDefault(res.Result.Last);
             var trade = res.Result.First(x => x.Key == DefaultPair).Value.First();
@@ -157,7 +158,7 @@ namespace KrakenCore.Tests
         [Fact]
         public async Task GetRecentSpreadData()
         {
-            var res = await _client.GetRecentSpreadData(DefaultPair);
+            var res = await Client.GetRecentSpreadData(DefaultPair);
 
             AssertNotDefault(res.Result.Last);
             var spread = res.Result.First(x => x.Key == DefaultPair).Value.First();
