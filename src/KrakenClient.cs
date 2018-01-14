@@ -19,15 +19,6 @@ namespace KrakenCore
     /// </summary>
     public partial class KrakenClient : IDisposable
     {
-        /// <summary>
-        /// Dummy API Key that can be used to access only Kraken public API.
-        /// </summary>
-        public const string DummyApiKey = "00000000000000000000000000000000000000000000000000000000";
-        /// <summary>
-        /// Dummy Private Key that can be used to access only Kraken public API.
-        /// </summary>
-        public const string DummyPrivateKey = "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-
         internal static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
         {
             ContractResolver = new DefaultContractResolver { NamingStrategy = new SnakeCaseNamingStrategy() }
@@ -48,22 +39,19 @@ namespace KrakenCore
         /// Initializes a new instance of the <see cref="KrakenClient"/> class.
         /// </summary>
         /// <param name="apiKey">
-        /// Key required to make private queries to the API. Use <see cref="DummyApiKey"/> if only
-        /// use public API is used.
+        /// Required to make private queries to the API. Passed to the API in the header.
         /// </param>
         /// <param name="privateKey">
-        /// Secret required to sign private messages. Use <see cref="DummyPrivateKey"/> if only
-        /// public API is used.
+        /// Required to make private queries to the API. Used to sign private messages.
         /// </param>
-        
         public KrakenClient(string apiKey, string privateKey)
         {
-            ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
-            PrivateKey = privateKey ?? throw new ArgumentNullException(nameof(privateKey));
+            ApiKey = apiKey ?? "";
+            PrivateKey = privateKey ?? "";
 
             _httpClient.BaseAddress = new Uri("https://api.kraken.com");
 
-            _sha512PrivateKey = new HMACSHA512(Convert.FromBase64String(privateKey));
+            _sha512PrivateKey = new HMACSHA512(Convert.FromBase64String(PrivateKey));
         }
 
         /// <summary>

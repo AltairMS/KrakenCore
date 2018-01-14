@@ -6,7 +6,6 @@ using Xunit.Abstractions;
 
 namespace KrakenCore.Tests
 {
-    [Collection("Kraken")]
     public class KrakenClientPublicApiTests : KrakenClientTests
     {
         public KrakenClientPublicApiTests(ITestOutputHelper output, KrakenFixture fixture)
@@ -98,7 +97,7 @@ namespace KrakenCore.Tests
             AssertNotDefault(tickerInfo.Open);
             AssertNotDefault(tickerInfo.Trades);
             AssertNotDefault(tickerInfo.Volume);
-            AssertNotDefault(tickerInfo.VWAP);
+            AssertNotDefault(tickerInfo.Vwap);
         }
 
         [Fact]

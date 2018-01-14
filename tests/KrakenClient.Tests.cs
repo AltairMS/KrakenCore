@@ -1,18 +1,30 @@
 using KrakenCore.Tests.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System;
 using System.Diagnostics;
-using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace KrakenCore.Tests
 {
-    public abstract class KrakenClientTests : IClassFixture<KrakenFixture>
+    public abstract class KrakenClientTests : IClassFixture<KrakenClientTests.KrakenFixture>
     {
-        protected const string ApiKey = "<INSERT_API_KEY>";
-        protected const string PrivateKey = "<INSERT_PRIVATE_KEY>";
+        // *******************************************//
+        // Account specific configuration starts here //
+        // *******************************************//
+
+        private const string ApiKey = "";     // <<--- INSERT API KEY HERE!
+        private const string PrivateKey = ""; // <<--- INSERT PRIVATE KEY HERE!
+
+        // A rate limiter is used in tests to ensure we don't hit the Kraken API rate limit when
+        // running all the tests in parallel. This should match the account's tier.
+        private static readonly RateLimit PrivateApiRateLimit = RateLimit.Tier2;
+
+        // To configure two-factor authentication, see KrakenClient construction below.
+
+        // *****************************************//
+        // Account specific configuration ends here //
+        // *****************************************//
 
         protected const string DefaultBase = "XETH";
         protected const string DefaultBaseAlternate = "ETH";
@@ -20,16 +32,8 @@ namespace KrakenCore.Tests
         protected const string DefaultPair = DefaultBase + DefaultQuote;
         protected const string DefaultPairAlternate = "ETHEUR";
 
-        public KrakenClientTests(ITestOutputHelper output, KrakenFixture fixture)
+        protected KrakenClientTests(ITestOutputHelper output, KrakenFixture fixture)
         {
-            if (ApiKey.Length != KrakenClient.DummyApiKey.Length ||
-                PrivateKey.Length != KrakenClient.DummyPrivateKey.Length)
-            {
-                throw new InvalidOperationException(
-$@"Please configure {nameof(ApiKey)} and {nameof(PrivateKey)} in {nameof(KrakenFixture)}!
-Use {nameof(KrakenClient)}.{nameof(KrakenClient.DummyApiKey)} and {nameof(KrakenClient)}.{nameof(KrakenClient.DummyPrivateKey)} to test only public API.");
-            }
-
             Client = new KrakenClient(ApiKey, PrivateKey)
             {
                 // If the API key has two factor password enabled, set the line below to return it.
@@ -42,12 +46,12 @@ Use {nameof(KrakenClient)}.{nameof(KrakenClient.DummyApiKey)} and {nameof(Kraken
                 InterceptRequest = async req =>
                 {
                     output.WriteLine("REQUEST");
-                    output.WriteLine(req.ToString());
+                    output.WriteLine(req.HttpRequest.ToString());
                     string content = await req.HttpRequest.Content.ReadAsStringAsync();
                     if (!string.IsNullOrWhiteSpace(content)) output.WriteLine(content);
 
                     // Wait if we have hit the API rate limit.
-                    RateLimiter limiter = req.HttpRequest.RequestUri.Query.Contains("/private/")
+                    RateLimiter limiter = req.HttpRequest.RequestUri.OriginalString.Contains("/private/")
                         ? fixture.PrivateApiRateLimiter
                         : fixture.PublicApiRateLimiter;
 
@@ -57,7 +61,7 @@ Use {nameof(KrakenClient)}.{nameof(KrakenClient.DummyApiKey)} and {nameof(Kraken
                 {
                     output.WriteLine("");
                     output.WriteLine("RESPONSE");
-                    output.WriteLine(res.ToString());
+                    output.WriteLine(res.HttpResponse.ToString());
                     string content = await res.HttpResponse.Content.ReadAsStringAsync();
                     output.WriteLine(JToken.Parse(content).ToString(Formatting.Indented));
                 }
@@ -68,22 +72,20 @@ Use {nameof(KrakenClient)}.{nameof(KrakenClient.DummyApiKey)} and {nameof(Kraken
 
         [DebuggerStepThrough]
         protected void AssertNotDefault<T>(T value) => Assert.NotEqual(default(T), value);
-    }
 
-    // Share the fixture between tests in order to respect API rate limits.
-    public class KrakenFixture
-    {
-        protected static readonly RateLimit PrivateApiRateLimit = RateLimit.Tier2;
-
-        public KrakenFixture()
+        // Share the fixture between tests in order to respect API rate limits.
+        public class KrakenFixture
         {
-            // Public API rate limiter is not dependent on account tier.
-            PublicApiRateLimiter = new RateLimiter(RateLimit.Tier4);
-            // Account tier only applies to private limiter!
-            PrivateApiRateLimiter = new RateLimiter(PrivateApiRateLimit);
-        }
+            public KrakenFixture()
+            {
+                // Public API rate limiter is not dependent on account tier.
+                PublicApiRateLimiter = new RateLimiter(RateLimit.Tier4);
+                // Account tier only applies to private limiter!
+                PrivateApiRateLimiter = new RateLimiter(PrivateApiRateLimit);
+            }
 
-        public RateLimiter PublicApiRateLimiter { get; }
-        public RateLimiter PrivateApiRateLimiter { get; }
+            public RateLimiter PublicApiRateLimiter { get; }
+            public RateLimiter PrivateApiRateLimiter { get; }
+        }
     }
 }

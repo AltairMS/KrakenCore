@@ -12,7 +12,6 @@ namespace KrakenCore.Tests
     // - Add standard order is tested only in validation mode
     // - For cancel open order, only failing path is tested
 
-    [Collection("Kraken")]
     public class KrakenClientPrivateApiTests : KrakenClientTests
     {
         public KrakenClientPrivateApiTests(ITestOutputHelper output, KrakenFixture fixture)
